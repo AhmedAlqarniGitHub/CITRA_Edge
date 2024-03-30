@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import threading
 import queue
 import cv2
@@ -6,37 +6,49 @@ import time
 import requests
 import datetime
 import tempfile
+import sqlite3
 
 app = Flask(__name__)
 connection_queue = queue.Queue()
-
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
+# Initialize the database
+def init_db():
+    with sqlite3.connect('cameras.db') as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS cameras (
+                id INTEGER PRIMARY KEY,
+                rtsp_url TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                event_id TEXT NOT NULL
+            )
+        ''')
+    print("Database Initialized")
 
-@app.route('/register_camera', methods=['POST'])
-def register_camera_endpoint():
-    data = request.json
-    rtsp_url = data['rtsp_url']
-    device_id = data['device_id']
-    event_id = data['event_id']  
-    connection_queue.put((rtsp_url, device_id, event_id))
-    return {"message": "Camera registered successfully"}
+@app.route('/cameras', methods=['GET', 'POST'])
+def cameras():
+    if request.method == 'POST':
+        data = request.json
+        with sqlite3.connect('cameras.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO cameras (rtsp_url, device_id, event_id) VALUES (?, ?, ?)', 
+                           (data['rtsp_url'], data['device_id'], data['event_id']))
+            conn.commit()
+        connection_queue.put((data['rtsp_url'], data['device_id'], data['event_id']))
+        return jsonify({'message': 'Camera added and processing started'}), 201
 
-@app.route('/start_processing', methods=['POST'])
-def start_processing_endpoint():
-    data = request.json
-    rtsp_url = data['rtsp_url']
-    device_id = data['device_id']
-    event_id = data['event_id']
-    connection_queue.put((rtsp_url, device_id, event_id))
-    return {"message": f"Started processing stream from device {device_id}"}
+    if request.method == 'GET':
+        with sqlite3.connect('cameras.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM cameras')
+            cameras = cursor.fetchall()
+        return jsonify(cameras)
 
 @app.route('/active_threads', methods=['GET'])
 def active_threads():
-    return {"active_threads": threading.active_count()}
+    return jsonify({"active_threads": threading.active_count()})
 
 def process_stream(rtsp_url, device_id, event_id):
-    # Append the transport protocol to the RTSP URL
     rtsp_url_with_tcp = rtsp_url + "?rtsp_transport=tcp&timeout=3000"
     
     cap = cv2.VideoCapture(rtsp_url_with_tcp, cv2.CAP_FFMPEG)
@@ -53,55 +65,31 @@ def process_stream(rtsp_url, device_id, event_id):
         detected_objects = detect_objects(frame)
         send_detection_results(detected_objects, device_id, event_id)
 
-#rtsp://localhost:8554/mystream
 def send_detection_results(objects, device_id, event_id):
     for object in objects:
-        # Save the image to a temporary file
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_image:
             cv2.imwrite(temp_image.name, object)
             
-            # Prepare the data payload
             data = {
                 "cameraId": device_id,
                 "detectionTime": datetime.datetime.now().isoformat(),
                 "eventId": event_id,
             }
-
-            # Prepare the file payload
             files = {'image': (temp_image.name, open(temp_image.name, 'rb'), 'image/jpeg')}
-
-            # Send the POST request with data and file
             response = requests.post("https://emotion-detection-app-v3-bw5vqucpuq-ww.a.run.app", data=data, files=files)
-
-            # Check response status and handle accordingly
-            # ...
-
-            # It's important to close the file handle after sending
             temp_image.close()
             
 def detect_objects(frame):
-    # Convert the frame to grayscale (necessary for the Haarcascade classifier)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Detect faces
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-
-    croppedFaces = []
-    # Loop over the detected faces
-    for (x, y, w, h) in faces:
-        # Crop the face from the frame
-        cropped_face = frame[y:y+h, x:x+w]
-        croppedFaces.append(cropped_face)
-        
-    return croppedFaces  
+    return [frame[y:y+h, x:x+w] for (x, y, w, h) in faces]
 
 def camera_listener():
     while True:
         rtsp_url, device_id, event_id = connection_queue.get()
-        thread = threading.Thread(target=process_stream, args=(rtsp_url, device_id, event_id))
-        thread.start()
+        threading.Thread(target=process_stream, args=(rtsp_url, device_id, event_id)).start()
 
 if __name__ == "__main__":
-    listener_thread = threading.Thread(target=camera_listener)
-    listener_thread.start()
-    app.run(host='0.0.0.0', port=5000)
+    init_db()
+    threading.Thread(target=camera_listener, daemon=True).start()
+    app.run(debug=True, host='0.0.0.0', port=5000)
