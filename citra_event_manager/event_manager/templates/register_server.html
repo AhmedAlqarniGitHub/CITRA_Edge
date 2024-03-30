@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register Server</title>
+    <style>
+        /* Form container */
+        .form-container {
+            width: 50%; /* Adjust width as needed */
+            margin: 0 auto; /* Center the form */
+            padding: 20px;
+            background-color: #f2f2f2;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Form header */
+        .form-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        /* Form fields */
+        .form-field {
+            margin-bottom: 15px;
+        }
+
+        /* Form input fields */
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+        }
+
+        /* Form submit button */
+        .form-submit {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        /* Form submit button hover effect */
+        .form-submit:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <div class="form-header">
+            <h1>Register New Server</h1>
+        </div>
+        <form method="post">
+            {% csrf_token %}
+            <div class="form-field">
+                <label for="server_url">Server URL:</label>
+                <input type="text" id="server_url" name="server_url" class="form-input" required>
+            </div>
+            <button type="submit" class="form-submit">Register</button>
+        </form>
+    </div>
+</body>
+</html>
