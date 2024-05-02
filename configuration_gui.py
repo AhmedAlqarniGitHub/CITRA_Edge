@@ -1,288 +1,178 @@
-import tkinter as tk
-from tkinter import messagebox, font, ttk
+import sys
 import requests
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView)
+from PyQt5.QtCore import Qt
 import sqlite3
 
-# Initialize SQLite Database
-def init_db():
-    conn = sqlite3.connect('cameras.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS cameras (
-            id INTEGER PRIMARY KEY,
-            rtsp_url TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            event_id TEXT NOT NULL
-        )
-    ''')
-    conn.commit()
-    conn.close()
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.init_db()
+        self.setWindowTitle('CITRA Event Manager')
+        self.setGeometry(100, 100, 1000, 600)  # x, y, width, height
 
-def register_camera():
-    rtsp_url = rtsp_url_entry.get()
-    device_id = device_id_entry.get()
-    event_id = event_id_entry.get()
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
 
-    if not rtsp_url or not device_id or not event_id:
-        messagebox.showwarning("Warning", "All fields are required!")
-        return
+        self.create_inputs()
+        self.create_table()
+        self.create_buttons()
 
-    data = {
-        "rtsp_url": rtsp_url,
-        "device_id": device_id,
-        "event_id": event_id
-    }
+        self.apply_stylesheet()
+        self.show()
 
-    # Send POST request to the server
-    try:
-        response = requests.post("http://localhost:5000/register_camera", json=data)
-        response.raise_for_status()  # This will raise an HTTPError if the HTTP request returned an unsuccessful status code
+    def create_inputs(self):
+        layout = QHBoxLayout()
 
-        if response.status_code == 200:
-            save_camera_to_db(rtsp_url, device_id, event_id)
-            messagebox.showinfo("Success", "Camera registered successfully!")
-            update_camera_table()
-    except requests.exceptions.HTTPError as err:
-        messagebox.showerror("Error", f"HTTP error occurred: {err}")
-    except requests.exceptions.RequestException as err:
-        messagebox.showerror("Error", f"Error occurred: {err}")
+        self.event_dropdown = QComboBox()
+        self.camera_dropdown = QComboBox()
+        self.rtsp_url_entry = QLineEdit()
+        self.rtsp_url_entry.setPlaceholderText("Enter RTSP URL")
+        fetch_button = QPushButton('Fetch Events and Cameras')
+        fetch_button.clicked.connect(self.fetch_events_and_cameras)
 
-def save_camera_to_db(rtsp_url, device_id, event_id):
-    conn = sqlite3.connect('cameras.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO cameras (rtsp_url, device_id, event_id) VALUES (?, ?, ?)',
-                   (rtsp_url, device_id, event_id))
-    conn.commit()
-    conn.close()
+        layout.addWidget(QLabel('Select Event:'))
+        layout.addWidget(self.event_dropdown)
+        layout.addWidget(QLabel('Select Camera:'))
+        layout.addWidget(self.camera_dropdown)
+        layout.addWidget(QLabel('RTSP URL:'))
+        layout.addWidget(self.rtsp_url_entry)
+        layout.addWidget(fetch_button)
 
-def fetch_cameras():
-    conn = sqlite3.connect('cameras.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, rtsp_url, device_id, event_id FROM cameras')
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+        self.layout.addLayout(layout)
 
-def get_thread_count():
-    try:
-        response = requests.get("http://localhost:5000/active_threads")
-        response.raise_for_status()
-        thread_count = response.json().get('active_threads')
-        messagebox.showinfo("Active Threads", f"Number of active threads: {thread_count}")
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("Error", f"An error occurred: {e}")
+    def create_table(self):
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(['ID', 'RTSP URL', 'Device ID', 'Event ID'])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.layout.addWidget(self.table)
 
-def update_camera_table():
-    for row in camera_table.get_children():
-        camera_table.delete(row)
-    for row in fetch_cameras():
-        camera_table.insert('', 'end', values=row)
+    def create_buttons(self):
+        layout = QHBoxLayout()
+        self.register_button = QPushButton('Register Camera')
+        self.edit_button = QPushButton('Edit Camera')
+        self.delete_button = QPushButton('Delete Camera')
+        self.reconnect_button = QPushButton('Reconnect Camera')
 
+        self.register_button.clicked.connect(self.register_camera)
+        self.edit_button.clicked.connect(self.edit_camera)
+        self.delete_button.clicked.connect(self.delete_camera)
+        self.reconnect_button.clicked.connect(self.reconnect_camera)
 
-def edit_camera():
-    # Get selected item to edit
-    selected_item = camera_table.selection()[0]
-    if not selected_item:
-        messagebox.showinfo("Info", "Please select a camera to edit.")
-        return
-    camera = camera_table.item(selected_item, 'values')
+        layout.addWidget(self.register_button)
+        layout.addWidget(self.edit_button)
+        layout.addWidget(self.delete_button)
+        layout.addWidget(self.reconnect_button)
 
-    # Open a new window to edit the item
-    edit_window = tk.Toplevel(root)
-    edit_window.title("Edit Camera")
-
-    # Add Entry widgets for each field
-    ttk.Label(edit_window, text="RTSP URL:").grid(row=0, column=0)
-    rtsp_url_var = tk.StringVar(value=camera[1])
-    rtsp_url_entry = ttk.Entry(edit_window, textvariable=rtsp_url_var)
-    rtsp_url_entry.grid(row=0, column=1)
-
-    ttk.Label(edit_window, text="Device ID:").grid(row=1, column=0)
-    device_id_var = tk.StringVar(value=camera[2])
-    device_id_entry = ttk.Entry(edit_window, textvariable=device_id_var)
-    device_id_entry.grid(row=1, column=1)
-
-    ttk.Label(edit_window, text="Event ID:").grid(row=2, column=0)
-    event_id_var = tk.StringVar(value=camera[3])
-    event_id_entry = ttk.Entry(edit_window, textvariable=event_id_var)
-    event_id_entry.grid(row=2, column=1)
-
-    # Save button
-    save_button = ttk.Button(edit_window, text="Save", command=lambda: save_changes(selected_item, rtsp_url_var.get(), device_id_var.get(), event_id_var.get(), edit_window))
-    save_button.grid(row=3, column=0, columnspan=2)
-
-def save_changes(selected_item, rtsp_url, device_id, event_id, edit_window):
-    # Update the table
-    camera_table.item(selected_item, values=(camera_table.item(selected_item, "values")[0], rtsp_url, device_id, event_id))
-
-    # Update the database
-    update_db_with_changes(camera_table.item(selected_item, "values"))
-
-    # Close the edit window
-    edit_window.destroy()
-
-    # Update the camera table view
-    update_camera_table()
-
-def update_db_with_changes(values):
-    # Connect to the database
-    conn = sqlite3.connect('cameras.db')
-    cursor = conn.cursor()
+        self.layout.addLayout(layout)
     
-    # Update the camera record
-    cursor.execute('UPDATE cameras SET rtsp_url = ?, device_id = ?, event_id = ? WHERE id = ?', (values[1], values[2], values[3], values[0]))
-    conn.commit()
-    conn.close()
-    
-def check_camera_status():
-    selected_item = camera_table.focus()
-    if not selected_item:
-        messagebox.showinfo("Info", "Please select a camera to check.")
-        return
-    camera = camera_table.item(selected_item)['values']
-    # Implement camera status check logic here
-    messagebox.showinfo("Status", f"Status check for camera {camera[2]} not implemented.")
+    # Initialize SQLite Database
+    def init_db(self):
+        conn = sqlite3.connect('cameras.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cameras (
+                id INTEGER PRIMARY KEY,
+                rtsp_url TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                event_id TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+        conn.close()
+        
+    def save_camera_to_db(self,rtsp_url, device_id, event_id):
+        conn = sqlite3.connect('cameras.db')
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO cameras (rtsp_url, device_id, event_id) VALUES (?, ?, ?)',
+                    (rtsp_url, device_id, event_id))
+        conn.commit()
+        conn.close()
+        
+    def fetch_cameras():
+        conn = sqlite3.connect('cameras.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, rtsp_url, device_id, event_id FROM cameras')
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
 
-def set_window_size(root):
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    width = int(screen_width * 0.8)
-    height = int(screen_height * 0.8)
-    x = (screen_width - width) // 2
-    y = (screen_height - height) // 2
-    root.geometry(f'{width}x{height}+{x}+{y}')
-
-def connect_to_camera():
-    selected_item = camera_table.focus()
-    if not selected_item:
-        messagebox.showinfo("Info", "Please select a camera to connect.")
-        return
-    camera = camera_table.item(selected_item)['values']
-    rtsp_url, device_id, event_id = camera[1], camera[2], camera[3]
-
-    data = {
-        "rtsp_url": rtsp_url,
-        "device_id": device_id,
-        "event_id": event_id
-    }
-
-    try:
-        response = requests.post("http://localhost:5000/start_processing", json=data)
-        response.raise_for_status()
-
+    def fetch_events_and_cameras(self):
+        response = requests.get("https://citra-api-qp4p25cifq-ww.a.run.app/events/events_with_cameras")
         if response.status_code == 200:
-            messagebox.showinfo("Success", response.json().get('message', 'Started processing the stream'))
-    except requests.exceptions.HTTPError as err:
-        messagebox.showerror("Error", f"HTTP error occurred: {err}")
-    except requests.exceptions.RequestException as err:
-        messagebox.showerror("Error", f"Error occurred: {err}")
+            events = response.json()
+            self.event_dropdown.clear()
+            for event in events:
+                self.event_dropdown.addItem(event['name'], event)
+            self.update_cameras_dropdown(events[0]['cameras'])
 
+    def update_cameras_dropdown(self, cameras):
+        self.camera_dropdown.clear()
+        for camera in cameras:
+            self.camera_dropdown.addItem(camera['model'], camera)
 
-# UI Design
-root = tk.Tk()
-root.title("CITRA Event Manager")
+    def register_camera(self):
+        rtsp_url = self.rtsp_url_entry.text()
+        event_id = self.event_dropdown.currentData()
+        device_id = self.camera_dropdown.currentData()
 
-style = ttk.Style(root)
-style.theme_use('clam')  # or 'alt', 'default', 'classic'
+        if not rtsp_url or not event_id or not device_id:
+            QMessageBox.warning(self, 'Missing Information', 'All fields are required!')
+            return
+        data = {
+            "rtsp_url": rtsp_url,
+            "device_id": device_id,
+            "event_id": event_id
+        }
+        
+        # Send POST request to the server
+        try:
+            response = requests.post("http://localhost:5000/register_camera", json=data)
+            response.raise_for_status()  # This will raise an HTTPError if the HTTP request returned an unsuccessful status code
 
-# Define colors
-primary_color = '#6200EE'
-secondary_color = '#03DAC6'
-background_color = '#121212'
-text_color = '#FFFFFF'
-button_color = '#3700B3'
-error_color = '#CF6679'
+            if response.status_code == 200:
+                self.save_camera_to_db(rtsp_url, device_id, event_id)
+                QMessageBox.information(self, 'Success', 'Camera registered successfully!')
+                # self.update_camera_table()
+        except requests.exceptions.HTTPError as err:
+            QMessageBox.warning("Error", f"HTTP error occurred: {err}")
+        except requests.exceptions.RequestException as err:
+            QMessageBox.warning("Error", f"Error occurred: {err}")
+    
 
-# Configure style
-style.configure('TButton', background=button_color, foreground=text_color, font=('Helvetica', 12))
-style.configure('TLabel', background=background_color, foreground=text_color, font=('Helvetica', 12))
-style.configure('TEntry', background='#1F1F1F', foreground=text_color, insertBackground=text_color)
-style.map('TButton', background=[('active', secondary_color)])
+    def edit_camera(self):
+        QMessageBox.information(self, 'Edit', 'Edit functionality goes here!')
 
-# Layout
-root.configure(bg=background_color)
-root.grid_rowconfigure(1, weight=1)
-root.grid_columnconfigure(0, weight=1)
+    def delete_camera(self):
+        QMessageBox.information(self, 'Delete', 'Delete functionality goes here!')
 
-# Camera Registration Frame
-registration_frame = ttk.Frame(root, padding="20")
-registration_frame.grid(row=0, column=0, sticky="ew")
-registration_frame['borderwidth'] = 2
-registration_frame['relief'] = 'ridge'
+    def reconnect_camera(self):
+        QMessageBox.information(self, 'Reconnect', 'Reconnect functionality goes here!')
 
-# Title Label
-title_label = ttk.Label(registration_frame, text="Camera Registration", font=('Roboto', 20, 'bold'))
-title_label.grid(row=0, columnspan=3, pady=(10, 20))
+    def apply_stylesheet(self):
+        self.setStyleSheet("""
+            QWidget {
+                font-size: 14px;
+                padding: 10px;
+            }
+            QComboBox, QLineEdit, QPushButton, QLabel, QTableWidget {
+                min-height: 30px;
+            }
+            QPushButton {
+                color: white;
+                background-color: #007BFF;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+            QTableWidget {
+                selection-background-color: #007BFF;
+            }
+        """)
 
-# RTSP URL
-ttk.Label(registration_frame, text="RTSP URL:").grid(row=1, column=0, sticky='w')
-rtsp_url_entry = ttk.Entry(registration_frame, width=40)
-rtsp_url_entry.grid(row=1, column=1, pady=5, padx=10, sticky='ew')
-
-# Device ID
-ttk.Label(registration_frame, text="Device ID:").grid(row=2, column=0, sticky='w')
-device_id_entry = ttk.Entry(registration_frame, width=40)
-device_id_entry.grid(row=2, column=1, pady=5, padx=10, sticky='ew')
-
-# Event ID
-ttk.Label(registration_frame, text="Event ID:").grid(row=3, column=0, sticky='w')
-event_id_entry = ttk.Entry(registration_frame, width=40)
-event_id_entry.grid(row=3, column=1, pady=5, padx=10, sticky='ew')
-
-# Register Button
-register_button = ttk.Button(registration_frame, text="Register Camera", command=register_camera)
-register_button.grid(row=4, column=1, pady=(10, 20), sticky='ew')
-
-# Camera Table Frame
-table_frame = ttk.Frame(root, padding="20")
-table_frame.grid(row=1, column=0, sticky="nsew")
-table_frame['borderwidth'] = 2
-table_frame['relief'] = 'ridge'
-
-#Camera Table
-columns = ("ID", "RTSP URL", "Device ID", "Event ID")
-camera_table = ttk.Treeview(table_frame, columns=columns, show='headings', height=5)
-for col in columns:
-    camera_table.heading(col, text=col)
-    camera_table.column(col, anchor='center', width=100)
-camera_table.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-
-#Scrollbar for Table
-scrollbar = ttk.Scrollbar(table_frame, orient='vertical', command=camera_table.yview)
-scrollbar.grid(row=0, column=1, sticky='ns')
-camera_table.configure(yscrollcommand=scrollbar.set)
-
-# Update the camera table with data from the database
-update_camera_table()
-
-#Buttons Frame
-buttons_frame = ttk.Frame(root, padding="20")
-buttons_frame.grid(row=2, column=0, sticky="ew")
-buttons_frame['borderwidth'] = 2
-buttons_frame['relief'] = 'ridge'
-
-#Connect to Camera Button
-connect_camera_button = ttk.Button(buttons_frame, text="Connect to Camera", command=connect_to_camera)
-connect_camera_button.grid(row=0, column=0, padx=10, pady=20, sticky="ew")
-
-#Get Thread Count Button
-thread_count_button = ttk.Button(buttons_frame, text="Get Thread Count", command=get_thread_count)
-thread_count_button.grid(row=0, column=1, padx=10, pady=20, sticky="ew")
-
-#Set the main window size
-root.geometry('800x600') # Width x Height
-
-# Add Edit button
-edit_button = ttk.Button(buttons_frame, text="Edit Camera", command=edit_camera)
-edit_button.grid(row=0, column=2, padx=10, pady=20, sticky="ew")
-
-# Make the layout responsive
-for i in range(3):  # Update to the number of buttons you have
-    buttons_frame.grid_columnconfigure(i, weight=1)
-    registration_frame.grid_columnconfigure(i, weight=1)
-
-table_frame.grid_rowconfigure(0, weight=1)
-table_frame.grid_columnconfigure(0, weight=1)
-
-# Run the application
-root.mainloop()
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    mw = MainWindow()
+    sys.exit(app.exec_())

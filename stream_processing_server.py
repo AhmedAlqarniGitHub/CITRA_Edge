@@ -72,7 +72,7 @@ def send_detection_results(objects, device_id, event_id):
 
             # Send the POST request with data and file
             response = requests.post("https://emotion-detection-app-v3-bw5vqucpuq-ww.a.run.app", data=data, files=files)
-
+            print(response)
             # Check response status and handle accordingly
             # ...
 
