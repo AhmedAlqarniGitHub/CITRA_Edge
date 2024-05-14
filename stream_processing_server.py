@@ -1,11 +1,17 @@
+import logging
 from flask import Flask, request
 import threading
 import queue
 import cv2
 import time
 import requests
-import datetime
+from datetime import datetime, timezone
 import tempfile
+import pytz
+
+# Set up logging to ignore messages less severe than WARNING
+logging.basicConfig(level=logging.WARNING)
+
 
 app = Flask(__name__)
 connection_queue = queue.Queue()
@@ -16,6 +22,7 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fronta
 @app.route('/register_camera', methods=['POST'])
 def register_camera_endpoint():
     data = request.json
+    print(data)
     rtsp_url = data['rtsp_url']
     device_id = data['device_id']
     event_id = data['event_id']  
@@ -38,8 +45,7 @@ def active_threads():
 def process_stream(rtsp_url, device_id, event_id):
     # Append the transport protocol to the RTSP URL
     rtsp_url_with_tcp = rtsp_url + "?rtsp_transport=tcp&timeout=3000"
-    
-    cap = cv2.VideoCapture(rtsp_url_with_tcp, cv2.CAP_FFMPEG)
+    cap = cv2.VideoCapture(rtsp_url_with_tcp)
     if not cap.isOpened():
         print(f"Unable to open camera with URL {rtsp_url_with_tcp}")
         return
@@ -59,24 +65,26 @@ def send_detection_results(objects, device_id, event_id):
         # Save the image to a temporary file
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_image:
             cv2.imwrite(temp_image.name, object)
-            
+
+            # Format the datetime to match JavaScript's `new Date()` output
+            current_utc = datetime.now(timezone.utc)
+            iso_format_with_milliseconds = current_utc.isoformat(timespec='milliseconds')
+
             # Prepare the data payload
             data = {
                 "cameraId": device_id,
-                "detectionTime": datetime.datetime.now().isoformat(),
+                "detectionTime": iso_format_with_milliseconds,
                 "eventId": event_id,
             }
-
+            print(data)
+            
             # Prepare the file payload
             files = {'image': (temp_image.name, open(temp_image.name, 'rb'), 'image/jpeg')}
 
             # Send the POST request with data and file
-            response = requests.post("https://emotion-detection-app-v3-bw5vqucpuq-ww.a.run.app", data=data, files=files)
+            response = requests.post("https://emotion-detection-app-bw5vqucpuq-ww.a.run.app", data=data, files=files)
             print(response)
-            # Check response status and handle accordingly
-            # ...
 
-            # It's important to close the file handle after sending
             temp_image.close()
             
 def detect_objects(frame):
